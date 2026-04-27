@@ -1,0 +1,1 @@
+export default function Home(){return <div className='wrap'><div className='card'><h1>💚❤️ FILIPE & FRAN</h1><p>Casal premium fitness</p></div><div className='card'><button>🎲 Sortear</button></div></div>}

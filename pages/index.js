@@ -14,7 +14,7 @@ const def=p=>({couple_code:CODE,profile:p,daily_calorie_goal:1600,water_goal_ml:
 
 export default function Home(){
 const [ok,setOk]=useState(false),[code,setCode]=useState(''),[profile,setProfile]=useState('Filipe'),[mode,setMode]=useState('individual'),[tab,setTab]=useState('cardapio')
-const [foods,setFoods]=useState([]),[history,setHistory]=useState([]),[settings,setSettings]=useState([]),[water,setWater]=useState([]),[cons,setCons]=useState([]),[weights,setWeights]=useState([])
+const [foods,setFoods]=useState([]),[history,setHistory]=useState([]),[settings,setSettings]=useState([]),[water,setWater]=useState([]),[cons,setCons]=useState([]),[records,setRecords]=useState([]),[weights,setWeights]=useState([])
 const [plan,setPlan]=useState(null),[loading,setLoading]=useState(false),[msg,setMsg]=useState('')
 const [form,setForm]=useState({meal:'Almoço',category:'Proteína',name:'',calories:'',is_complete_meal:false})
 const [cf,setCf]=useState({meal:'Almoço',food_id:''}),[weight,setWeight]=useState('')
@@ -25,16 +25,17 @@ useEffect(()=>{let h=history.find(x=>x.profile===profile&&(mode==='casal'?x.mode
 
 async function load(){
  setLoading(true); setMsg('')
- const [a,b,c,d,e,f]=await Promise.all([
+ const [a,b,c,d,e,r,f]=await Promise.all([
   supabase.from('foods').select('*').eq('couple_code',CODE).order('id'),
   supabase.from('history').select('*').eq('couple_code',CODE).order('created_at',{ascending:false}),
   supabase.from('profile_settings').select('*').eq('couple_code',CODE),
   supabase.from('water_logs').select('*').eq('couple_code',CODE).eq('date',today()),
   supabase.from('daily_consumption').select('*').eq('couple_code',CODE).gte('date',ago(30)).order('date'),
+  supabase.from('daily_calorie_records').select('*').eq('couple_code',CODE).gte('date',ago(30)).order('date'),
   supabase.from('weight_logs').select('*').eq('couple_code',CODE).order('date')
  ])
- if(a.error||b.error||c.error||d.error||e.error||f.error)setMsg('Erro ao carregar. Rode o SQL V5 no Supabase.')
- setFoods(a.data||[]);setHistory(b.data||[]);setSettings(c.data||[]);setWater(d.data||[]);setCons(e.data||[]);setWeights(f.data||[]);setLoading(false)
+ if(a.error||b.error||c.error||d.error||e.error||r.error||f.error)setMsg('Erro ao carregar. Rode o SQL V5 atualizado no Supabase.')
+ setFoods(a.data||[]);setHistory(b.data||[]);setSettings(c.data||[]);setWater(d.data||[]);setCons(e.data||[]);setRecords(r.data||[]);setWeights(f.data||[]);setLoading(false)
 }
 function enter(){if(code.trim().toUpperCase()===CODE){localStorage.setItem('fiFranAuthorized',CODE);setOk(true)}else setMsg('Código incorreto.')}
 const visible=()=>mode==='casal'?'Casal':profile
@@ -74,6 +75,19 @@ async function addConsumed(){
  if(error)setMsg('Erro ao salvar consumo. Rode SQL V5.');else{setMsg('Consumo salvo.');await load()} setLoading(false)
 }
 async function delConsumed(id){setLoading(true);await supabase.from('daily_consumption').delete().eq('id',id).eq('couple_code',CODE);await load();setLoading(false)}
+async function registerCalories(){
+ let total=consumed()
+ if(total<=0)return setMsg('Adicione ao menos um alimento antes de registrar.')
+ setLoading(true)
+ let {error}=await supabase.from('daily_calorie_records').upsert({couple_code:CODE,profile,date:today(),calories:total},{onConflict:'couple_code,profile,date'})
+ if(error){setMsg('Erro ao registrar calorias. Rode o SQL atualizado.');setLoading(false);return}
+ let del=await supabase.from('daily_consumption').delete().eq('couple_code',CODE).eq('profile',profile).eq('date',today())
+ if(del.error)setMsg('Calorias registradas, mas não consegui limpar os itens do dia.')
+ else setMsg(`Calorias registradas para ${profile}: ${total} kcal. A lista de hoje foi zerada.`)
+ await load()
+ setLoading(false)
+}
+
 async function saveWeight(){
  let v=Number(weight); if(!v||v<=0)return setMsg('Digite peso válido.')
  setLoading(true); let {error}=await supabase.from('weight_logs').upsert({couple_code:CODE,profile,date:today(),weight:v},{onConflict:'couple_code,profile,date'})
@@ -84,7 +98,7 @@ async function addWater(x){setLoading(true);await supabase.from('water_logs').up
 const todayItems=()=>cons.filter(c=>c.profile===profile&&c.date===today())
 const consumed=()=>todayItems().reduce((s,c)=>s+Number(c.calories||0),0)
 function byMeal(){let m={};todayItems().forEach(i=>{m[i.meal]=m[i.meal]||[];m[i.meal].push(i)});return m}
-function chartCons(){let goal=Number(st(profile).daily_calorie_goal||1600),arr=[];for(let i=6;i>=0;i--){let d=ago(i);arr.push({date:d.slice(5),meta:goal,consumido:cons.filter(c=>c.profile===profile&&c.date===d).reduce((s,c)=>s+Number(c.calories||0),0)})}return arr}
+function chartCons(){let goal=Number(st(profile).daily_calorie_goal||1600),arr=[];for(let i=6;i>=0;i--){let d=ago(i);let rec=records.find(x=>x.profile===profile&&x.date===d);arr.push({date:d.slice(5),meta:goal,consumido:Number(rec?.calories||0)})}return arr}
 const chartWeight=()=>weights.filter(w=>w.profile===profile).slice(-20).map(w=>({date:String(w.date).slice(5),peso:Number(w.weight)}))
 const sumHist=d=>history.filter(h=>h.profile===profile&&(h.date||String(h.created_at||'').slice(0,10))>=ago(d)).reduce((s,h)=>s+Number(h.calories||0),0)
 let a=active(),photoUrl=a.photo_url,goal=Number(a.daily_calorie_goal||1600),wml=waterNow(),wgoal=Number(st(profile).water_goal_ml||2500),wp=Math.min(100,Math.round((wml/wgoal)*100)),diff=consumed()-Number(st(profile).daily_calorie_goal||1600)
@@ -104,10 +118,11 @@ return <main className="screen"><div className="app">
 <section className="card"><h2>Base compartilhada <span className="badge">{foods.length} itens</span></h2>{foods.map(f=><div className="food" key={f.id}><div><strong>{f.meal} › {f.category}</strong><p>{f.name} • {f.calories} kcal {f.is_complete_meal?'• completo':''}</p></div><button className="icon" onClick={()=>delFood(f.id)}>🗑️</button></div>)}</section></>}
 
 {tab==='consumo'&&<><section className="stats"><div className="stat"><span>Consumido</span><strong>{consumed()}</strong><small>hoje</small></div><div className="stat"><span>Meta</span><strong>{st(profile).daily_calorie_goal||1600}</strong><small>kcal</small></div><div className="stat"><span>Diferença</span><strong>{diff>0?'+':''}{diff}</strong><small>kcal</small></div></section>
-<section className="card"><h2>Inserir comida consumida</h2><select value={cf.meal} onChange={e=>setCf({...cf,meal:e.target.value})}>{MEALS.map(m=><option key={m}>{m}</option>)}</select><select value={cf.food_id} onChange={e=>setCf({...cf,food_id:e.target.value})}><option value="">Escolha da base</option>{foods.map(f=><option value={f.id} key={f.id}>{f.meal} › {f.name} • {f.calories} kcal</option>)}</select><button onClick={addConsumed}>Adicionar ao dia</button></section>
+<section className="card"><h2>Inserir comida consumida</h2><select value={cf.meal} onChange={e=>setCf({...cf,meal:e.target.value})}>{MEALS.map(m=><option key={m}>{m}</option>)}</select><select value={cf.food_id} onChange={e=>setCf({...cf,food_id:e.target.value})}><option value="">Escolha da base</option>{foods.map(f=><option value={f.id} key={f.id}>{f.meal} › {f.name} • {f.calories} kcal</option>)}</select><button onClick={addConsumed}>Adicionar ao dia</button><button onClick={registerCalories}>✅ Registrar Calorias</button><p className="muted">Ao registrar, o total do dia é salvo no perfil selecionado e a lista de alimentos de hoje é zerada.</p></section>
 <section className="card"><h2>Hoje por refeição</h2>{MEALS.map(m=><div className="meal" key={m}><strong>{m}</strong>{(byMeal()[m]||[]).length?byMeal()[m].map(i=><div className="mini" key={i.id}><span>{i.food_name} • {i.calories} kcal</span><button onClick={()=>delConsumed(i.id)}>remover</button></div>):<p>Sem itens</p>}</div>)}</section>
 <section className="card"><h2>Meta x Consumido</h2><div className="chart"><ResponsiveContainer width="100%" height={220}><BarChart data={chartCons()}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.12)"/><XAxis dataKey="date" stroke="#fff"/><YAxis stroke="#fff"/><Tooltip/><Bar dataKey="meta" fill="#3ddc97"/><Bar dataKey="consumido" fill="#ff4fa3"/></BarChart></ResponsiveContainer></div></section></>}
 
 {tab==='peso'&&<><section className="card"><h2>Peso de {profile}</h2><input type="number" step="0.1" placeholder="Peso de hoje em kg" value={weight} onChange={e=>setWeight(e.target.value)}/><button onClick={saveWeight}>Salvar peso de hoje</button></section><section className="card"><h2>Gráfico de peso</h2><div className="chart"><ResponsiveContainer width="100%" height={230}><LineChart data={chartWeight()}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.12)"/><XAxis dataKey="date" stroke="#fff"/><YAxis stroke="#fff" domain={['dataMin - 1','dataMax + 1']}/><Tooltip/><Line type="monotone" dataKey="peso" stroke="#3ddc97" strokeWidth={3} dot/></LineChart></ResponsiveContainer></div></section></>}
 </div></main>
 }
+

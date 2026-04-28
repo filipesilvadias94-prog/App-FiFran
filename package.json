@@ -1,5 +1,5 @@
 {
-  "name": "fi-fran-v3-definitiva",
+  "name": "fi-fran-v5-consumo-peso",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -11,6 +11,7 @@
     "@supabase/supabase-js": "2.45.4",
     "next": "14.2.5",
     "react": "18.2.0",
-    "react-dom": "18.2.0"
+    "react-dom": "18.2.0",
+    "recharts": "2.12.7"
   }
 }
